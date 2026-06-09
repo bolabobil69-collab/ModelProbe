@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>ModelProbe v10.5.5</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Syne:wght@700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/style.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.0/marked.min.js" defer></script>
+</head>
+<body>
+
+<!-- fi-pt kept for batch prompt template load (not yet FSA-migrated) -->
+<input type="file" id="fi-pt" class="hf" accept=".json">
+
+<div class="app">
+
+  <!-- TOPBAR -->
+  <div class="topbar">
+    <div class="logo">Model<em>Probe</em><sub>v10.5.5</sub></div>
+    <div class="sep"></div>
+    <button class="nvbtn on" id="nv-chat"  onclick="sv('chat')">Chat</button>
+    <button class="nvbtn"    id="nv-batch" onclick="sv('batch')">Batch</button>
+    <div class="nav-div"></div>
+    <button class="nvbtn"    id="nv-free"  onclick="sv('free')">Free ✦</button>
+    <div class="sep"></div>
+    <div class="mpill"><div class="dot" id="dot"></div><span id="ml">no model</span></div>
+    <div class="sp"></div>
+    <button class="btn sm" onclick="exportGlobal()" title="Export all sessions + logs">&#x2B07; export all</button>
+    <button class="btn sm ghost" onclick="newSession()">+ new chat</button>
+  </div>
+
+  <!-- CHAT VIEW -->
+  <div id="v-chat" class="view v-chat">
+
+    <!-- LEFT PANEL -->
+    <div class="panel">
+      <div class="tabs">
+        <div class="tab on" onclick="lt('cfg',this)">Config</div>
+        <div class="tab"    onclick="lt('rules',this)">Rules</div>
+        <div class="tab"    onclick="lt('edit',this)">Edit Rule</div>
+        <div class="tab"    onclick="lt('params',this)">Params</div>
+      </div>
+
+      <!-- CONFIG TAB -->
+      <div id="lt-cfg" class="scr">
+        <!-- CONFIG FILES — top-level collapsible (default: closed) -->
+        <details class="sec-collapse">
+          <summary class="sec-collapse-hdr">
+            <span class="slbl" style="margin-bottom:0">Config Files
+              <span style="font-size:9px;color:var(--text3);font-weight:400;text-transform:none;letter-spacing:0">
+                &#8192;from <code style="font-family:var(--mono)">CONFIGS/</code>
+              </span>
+            </span>
+          </summary>
+          <div class="sec-collapse-body">
+
+            <!-- CONFIGS/ link status — always visible -->
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:9px;flex-wrap:wrap">
+              <span class="ftag n" id="configs-link-badge">CONFIGS/ not linked</span>
+              <button class="btn xs ac" onclick="requestConfigsDir()"
+                title="Manual folder link for Chrome/Edge without local server. Not needed when running via start.bat / start.sh.">
+                &#x1F4C2; Link CONFIGS/ folder
+              </button>
+            </div>
+
+            <!-- Collapsible hints -->
+            <details class="cfg-hints">
+              <summary>How does this work?</summary>
+              <div class="cfg-hints-body">
+                <ul>
+                  <li>Run via <code>start.bat</code> / <code>start.sh</code> &#x2192; saves write directly to <code>dist/CONFIGS/</code> automatically (all browsers).</li>
+                  <li>Without local server: Chrome/Edge can link a folder manually above; Firefox/Safari will download the file instead.</li>
+                  <li>&#x21BA; always re-reads from <code>CONFIGS/</code> via fetch.</li>
+                  <li id="cfg-link-status-hint">CONFIGS/ not linked</li>
+                </ul>
+              </div>
+            </details>
+
+            <!-- Per-file rows -->
+            <div style="display:flex;gap:5px;margin-bottom:5px;align-items:center;flex-wrap:wrap">
+              <span style="font-size:10px;color:var(--text3);width:76px">providers.json</span>
+              <span class="ftag n" id="prov-ftag">not loaded</span>
+              <button class="btn xs" onclick="loadProvFile()"    title="Load file">load</button>
+              <button class="btn xs" onclick="saveProvFile()"    title="Save / overwrite">save</button>
+              <button class="btn xs ghost" onclick="reloadProviders()" title="Re-fetch from CONFIGS/">&#x21BA;</button>
+            </div>
+            <div style="display:flex;gap:5px;margin-bottom:5px;align-items:center;flex-wrap:wrap">
+              <span style="font-size:10px;color:var(--text3);width:76px">models.json</span>
+              <span class="ftag n" id="mdl-ftag">not loaded</span>
+              <button class="btn xs" onclick="loadMdlFile()"     title="Load file">load</button>
+              <button class="btn xs" onclick="saveMdlFile()"     title="Save / overwrite">save</button>
+              <button class="btn xs ghost" onclick="reloadModels()"    title="Re-fetch from CONFIGS/">&#x21BA;</button>
+            </div>
+
+          </div>
+        </details>
+
+        <!-- ADD PROVIDER — top-level collapsible (default: closed) -->
+        <details class="sec-collapse">
+          <summary class="sec-collapse-hdr">
+            <span class="slbl" style="margin-bottom:0">Add Provider</span>
+          </summary>
+          <div class="sec-collapse-body">
+            <div class="ig"><label>Provider ID</label>
+              <input type="text" id="np-id"  placeholder="e.g. openrouter"></div>
+            <div class="ig"><label>Base URL</label>
+              <input type="text" id="np-url" placeholder="https://..."></div>
+            <div class="ig"><label>API Key</label>
+              <input type="text" id="np-key" placeholder="sk-..."></div>
+            <button class="btn sm ac" onclick="addProv()"
+              style="width:100%;justify-content:center">+ Add Provider</button>
+          </div>
+        </details>
+
+        <!-- PROVIDERS & MODELS — top-level collapsible (default: open) -->
+        <details class="sec-collapse" open>
+          <summary class="sec-collapse-hdr">
+            <span class="slbl" style="margin-bottom:0">Providers &amp; Models</span>
+          </summary>
+          <div class="sec-collapse-body">
+            <div id="prov-list">
+              <div class="empty" style="padding:10px"><p>Load files or add a provider above.</p></div>
+            </div>
+          </div>
+        </details>
+        <div class="sec">
+          <div class="slbl">Active Model</div>
+          <div class="ig">
+            <label style="font-size:9px;color:var(--text3);margin-bottom:3px;display:block">Filter by provider</label>
+            <select id="model-prov-filter" onchange="filterModelsByProv(this.value)"
+              style="width:100%;font-size:10px;padding:3px 6px;margin-bottom:5px">
+              <option value="">All providers</option>
+            </select>
+            <select id="model-sel" onchange="setAlias(this.value)">
+              <option value="">&#8212; select model alias &#8212;</option>
+            </select>
+          </div>
+          <div id="mdl-detail"
+            style="font-size:10px;color:var(--text3);line-height:1.6;margin-bottom:7px"></div>
+          <button class="btn" style="width:100%;justify-content:center"
+            onclick="testConn()">&#x26A1; test connection</button>
+          <div id="conn-res"
+            style="margin-top:6px;font-size:10px;line-height:1.5;display:none"></div>
+        </div>
+      </div>
+
+      <!-- RULES TAB -->
+      <div id="lt-rules" class="scr hidden">
+        <div class="sec">
+          <div class="slbl">rules.json <span class="ftag n" id="rules-ftag">not loaded</span></div>
+          <div class="irow" style="margin-bottom:9px;flex-wrap:wrap;gap:5px">
+            <button class="btn sm" onclick="loadRulesFile()">&#x2B06; load</button>
+            <button class="btn sm" onclick="saveRulesFile()">&#x2B07; save</button>
+            <button class="btn sm ghost" onclick="reloadRules()" title="Re-fetch from CONFIGS/">&#x21BA; reload</button>
+            <button class="btn sm ghost" onclick="resetRules()">reset defaults</button>
+            <button class="btn sm"
+              onclick="lt('edit',document.querySelector('.panel:not(.r) .tab:nth-child(3)'))">+ new</button>
+          </div>
+          <!-- Search + view toggle -->
+          <div class="irow" style="gap:5px;margin-bottom:6px;align-items:center">
+            <input type="text" id="rules-search" placeholder="&#x1F50D; search rules&#8230;"
+              style="flex:1;font-size:10px;padding:4px 7px">
+            <button id="view-toggle-btn" class="btn xs" title="Toggle compact/detailed"
+              onclick="toggleRulesView()" style="flex-shrink:0;width:26px;padding:3px 4px">&#x2261;</button>
+          </div>
+          <!-- Show system rules toggle -->
+          <label style="display:flex;align-items:center;gap:6px;font-size:10px;color:var(--text2);margin-bottom:7px;cursor:pointer">
+            <input type="checkbox" id="show-sys-rules" checked>
+            Show system rules
+          </label>
+          <!-- Tag filters -->
+          <div style="margin-bottom:6px">
+            <div style="font-size:9px;letter-spacing:1.2px;text-transform:uppercase;color:var(--text3);margin-bottom:4px">Filter by tag</div>
+            <div id="rules-tag-filters" style="display:flex;flex-wrap:wrap;gap:4px"></div>
+          </div>
+          <div id="all-rules-list"></div>
+        </div>
+        <div class="sec">
+          <div class="slbl">Active Rule
+            <span><button class="btn xs ghost" onclick="clearActiveRule()">clear</button></span>
+          </div>
+          <div class="sysbox empty" id="sys-prev">None selected</div>
+          <button class="btn sm" style="margin-top:6px" onclick="copyRule()">copy prompt</button>
+        </div>
+        <!-- Tag Manager -->
+        <div class="sec">
+          <div class="slbl" style="display:flex;align-items:center;justify-content:space-between">
+            <span>Tags</span>
+            <button class="btn xs ghost" id="tag-manager-toggle"
+              onclick="toggleTagManager()">&#x25BC; manage</button>
+          </div>
+          <div id="tag-manager-body" style="display:none">
+            <div id="tags-list" style="margin-bottom:7px"></div>
+            <div style="font-size:9px;letter-spacing:1px;text-transform:uppercase;color:var(--text3);margin-bottom:5px">New Tag</div>
+            <div class="irow" style="gap:5px;margin-bottom:5px">
+              <input type="text" id="new-tag-name" placeholder="Tag name"
+                style="flex:1;font-size:10px;padding:4px 6px">
+              <input type="color" id="new-tag-color" value="#6366f1" title="Tag colour"
+                style="width:30px;height:28px;padding:2px;border:1px solid var(--border);border-radius:var(--r);cursor:pointer;background:none">
+            </div>
+            <button class="btn sm ac" onclick="addNewTag()"
+              style="width:100%;justify-content:center">+ Add Tag</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- EDIT RULE TAB -->
+      <div id="lt-edit" class="scr hidden">
+        <div class="sec">
+          <div class="slbl">Rule Editor
+            <span id="edit-ind"
+              style="color:var(--ac);font-size:10px;text-transform:none;
+                     letter-spacing:0;font-weight:400;overflow:hidden;
+                     text-overflow:ellipsis;white-space:nowrap;max-width:110px"></span>
+          </div>
+          <div class="ig"><label>Rule Name</label>
+            <input type="text" id="rule-name" placeholder="My Rule Name"></div>
+          <div class="ig"><label>System Prompt</label>
+            <textarea id="rule-body" rows="9"
+              placeholder="Write system prompt here..."></textarea></div>
+          <div class="irow" style="flex-wrap:wrap;gap:5px;margin-bottom:6px">
+            <button class="btn sm ac"    onclick="saveRule()">save</button>
+            <button class="btn sm"       onclick="applyRule()">apply now</button>
+            <button class="btn sm ghost" onclick="newRuleEditor()">new</button>
+            <button class="btn sm ghost" onclick="clearEditor()">clear</button>
+          </div>
+          <div class="ig">
+            <label style="font-size:9px;letter-spacing:1px;text-transform:uppercase;color:var(--text3)">Tags</label>
+            <div id="rule-tag-picker" style="display:flex;flex-wrap:wrap;gap:4px;min-height:22px"></div>
+          </div>
+        </div>
+        <div class="sec">
+          <div class="slbl">Custom Rules (quick load)</div>
+          <div id="quick-rules"></div>
+        </div>
+      </div>
+
+      <!-- PARAMS TAB -->
+      <div id="lt-params" class="scr hidden">
+        <div class="sec">
+          <div class="slbl">Generation</div>
+          <div class="prow"><span class="plbl">Temperature</span>
+            <span class="pval" id="v-t">0.7</span></div>
+          <input type="range" id="s-t" min="0" max="2" step="0.05" value="0.7"
+            oninput="pv('v-t',this,2);saveParams()" style="width:100%;margin-bottom:10px">
+          <div class="prow"><span class="plbl">Max Tokens</span>
+            <span class="pval" id="v-m">2048</span></div>
+          <input type="range" id="s-m" min="64" max="16384" step="64" value="2048"
+            oninput="pv('v-m',this,0);saveParams()" style="width:100%;margin-bottom:10px">
+          <div class="prow"><span class="plbl">Top-P</span>
+            <span class="pval" id="v-p">1.0</span></div>
+          <input type="range" id="s-p" min="0" max="1" step="0.05" value="1.0"
+            oninput="pv('v-p',this,2);saveParams()" style="width:100%;margin-bottom:10px">
+          <div class="prow"><span class="plbl">Freq. Penalty</span>
+            <span class="pval" id="v-f">0.0</span></div>
+          <input type="range" id="s-f" min="-2" max="2" step="0.1" value="0"
+            oninput="pv('v-f',this,1);saveParams()" style="width:100%;margin-bottom:10px">
+          <div style="display:flex;flex-direction:column;gap:8px;margin-top:4px">
+            <label style="display:flex;align-items:center;gap:7px;cursor:pointer">
+              <input type="checkbox" id="str-on" checked onchange="saveParams()"> Stream response</label>
+            <label style="display:flex;align-items:center;gap:7px;cursor:pointer">
+              <input type="checkbox" id="thk-on" onchange="saveParams()"> Extended thinking</label>
+            <label style="display:flex;align-items:center;gap:7px;cursor:pointer">
+              <input type="checkbox" id="sys-on" checked onchange="saveParams()"> Inject system prompt</label>
+          </div>
+          <div id="ctx-params-mount"></div>
+        </div>
+      </div>
+    </div><!-- /panel left -->
+
+    <!-- CHAT CENTER -->
+    <div class="cpane">
+      <div class="chat-hdr" id="chat-hdr">
+        <div class="chat-hdr-row">
+          <span class="sess-lbl" id="sess-lbl">No session</span>
+          <button class="btn sm ghost chat-hdr-btn-expand" id="chat-hdr-expand" onclick="toggleChatHdr()" title="Expand header">&#9660;</button>
+          <button class="btn sm ghost chat-hdr-btn-collapsed" onclick="toggleChatHdr()" title="Expand header" style="display:none">&#9658;</button>
+          <button class="btn sm ghost chat-hdr-btns" onclick="clearSession(this)">clear</button>
+          <button class="btn sm ghost chat-hdr-btns" onclick="newSession()">+ new</button>
+        </div>
+      </div>
+      <div id="chat-ctx-bar"></div>
+      <button class="rpanel-toggle" id="rpanel-toggle" onclick="toggleRPanel()" title="Toggle right panel">&#9654;</button>
+      <div class="msgs" id="msgs">
+        <div class="empty">
+          <div class="empty-i">&#x2B21;</div>
+          <p>Load providers.json + models.json<br>and select a model to start.</p>
+        </div>
+      </div>
+      <div class="stream-status" id="stream-status">
+        <span class="stream-status-dot"></span>
+        <span id="stream-status-txt">generating…</span>
+      </div>
+      <div class="pdock">
+        <div class="pdock-row">
+          <textarea id="pinput"
+            placeholder="Type a message… (Shift+Enter=send, Enter=newline)"></textarea>
+          <div class="pside">
+            <select id="prole" style="width:105px;font-size:10px;padding:4px 6px">
+              <option value="user">user</option>
+              <option value="system">system</option>
+              <option value="assistant">assistant</option>
+            </select>
+            <div class="pinfo" id="cci">0 ch</div>
+            <button class="btn ac" id="sbtn" onclick="sendMsg()">&#x25B6; run</button>
+            <button class="btn dn" id="abtn" style="display:none"
+              onclick="stopStream()">&#x25A0; stop</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT PANEL -->
+    <div class="panel r">
+      <div class="tabs">
+        <div class="tab on" onclick="rt('log',this)">Log <span id="lc"></span></div>
+        <div class="tab"    onclick="rt('hist',this)">History <span id="hc"></span></div>
+        <div class="tab"    onclick="rt('ctx',this)">Context</div>
+      </div>
+
+      <!-- LOG TAB -->
+      <div id="rt-log" style="display:flex;flex-direction:column;flex:1;overflow:hidden">
+        <!-- Global actions -->
+        <div class="global-actions">
+          <span>Global</span>
+          <button class="btn xs" onclick="exportLogs()">&#x2B07; logs</button>
+          <button class="btn xs" onclick="exportGlobal()">&#x2B07; all</button>
+          <button class="btn xs dn" onclick="clearAll(this)">clear all</button>
+        </div>
+        <!-- Search -->
+        <div class="ltb">
+          <input type="text" id="lsearch" placeholder="search sessions, prompts&#8230;"
+            oninput="renderLog()">
+          <button class="btn sm dn" onclick="clearLogs(this)">clear logs</button>
+        </div>
+        <!-- Logging toggle + server warning -->
+        <div style="display:flex;align-items:center;gap:6px;padding:4px 7px 2px">
+          <button id="log-toggle" class="btn xs" onclick="toggleLogging()" title="Toggle request file logging">⏺ logging on</button>
+          <span id="log-server-warn" style="display:none;font-size:10px;color:var(--text3)">
+            ⚠ serve.py offline — log files won't be written or cleaned up. Manage LOGS/ manually if needed.
+          </span>
+        </div>
+        <div class="scr" style="padding:7px" id="lentries"></div>
+        <div class="ldet" id="ldet"></div>
+      </div>
+
+      <!-- HISTORY TAB -->
+      <div id="rt-hist" style="display:none;flex-direction:column;flex:1;overflow:hidden">
+        <!-- Global actions -->
+        <div class="global-actions">
+          <span>Global</span>
+          <button class="btn xs" onclick="exportAllSessions()">&#x2B07; sessions</button>
+          <button class="btn xs dn" onclick="clearHist(this)">clear</button>
+        </div>
+        <!-- Filters -->
+        <div class="hist-toolbar">
+          <div class="hist-filters">
+            <input type="text" id="hf-search"   placeholder="search&#8230;"
+              oninput="setHistFilter('search',this.value)">
+            <input type="text" id="hf-provider"  placeholder="provider"
+              oninput="setHistFilter('provider',this.value)" style="max-width:80px">
+            <input type="text" id="hf-model"     placeholder="model"
+              oninput="setHistFilter('model',this.value)" style="max-width:80px">
+          </div>
+          <button class="btn xs ghost" onclick="clearHistFilters()">&#x2715;</button>
+        </div>
+        <div class="scr" style="padding:7px" id="hlist"></div>
+      </div>
+
+      <!-- CONTEXT TAB -->
+      <div id="rt-ctx" style="display:none;flex-direction:column;flex:1;overflow:hidden">
+        <!-- Session selector -->
+        <div class="ctx-toolbar">
+          <select id="ctx-session-sel" onchange="setCtxSession(this.value)">
+            <option value="">&#x25CF; Active session</option>
+          </select>
+          <button class="btn xs ghost" onclick="renderCtx()" title="Refresh">&#x21BA;</button>
+          <button class="btn xs dn"    onclick="clearCtx(this)" title="Clear context">clear</button>
+        </div>
+        <div class="scr" style="padding:9px" id="ctx-body">
+          <div class="empty">
+            <div class="empty-i">&#x25CE;</div>
+            <p>Start a session to see context info.</p>
+          </div>
+        </div>
+      </div>
+    </div><!-- /panel right -->
+  </div><!-- /v-chat -->
+
+  <!-- BATCH VIEW -->
+  <div id="v-batch" class="view v-batch hidden">
+    <div class="bpan">
+      <div class="tabs"><div class="tab on">Prompt Templates</div></div>
+      <div class="sec" style="flex-shrink:0">
+        <div class="slbl">prompts_template.json
+          <span class="ftag n" id="pt-ftag">not loaded</span></div>
+        <div class="irow" style="margin-bottom:7px">
+          <button class="btn sm" onclick="loadPT()">&#x2B06; load</button>
+          <button class="btn sm" onclick="savePT()">&#x2B07; save</button>
+        </div>
+      </div>
+      <div class="scr" style="padding:7px" id="ptlist"></div>
+      <div class="sec" style="flex-shrink:0">
+        <div class="slbl">New Template</div>
+        <div class="ig"><label>Name</label>
+          <input type="text" id="bt-name" placeholder="Template name"></div>
+        <div class="ig"><label>System (optional)</label>
+          <textarea id="bt-sys" rows="2" placeholder="System prompt… (Shift+Enter=send, Enter=newline)"></textarea></div>
+        <div class="ig"><label>Prompt</label>
+          <textarea id="bt-prompt" rows="3" placeholder="Prompt… (Shift+Enter=send, Enter=newline)"></textarea></div>
+        <button class="btn sm ac" onclick="savePTform()"
+          style="width:100%;justify-content:center">save template</button>
+      </div>
+    </div>
+
+    <div style="background:var(--bg);display:flex;flex-direction:column;overflow:hidden">
+      <div class="bsum" id="bsum" style="display:none">
+        Results: <span class="bnum" id="bs-tot">0</span>
+        &#x2713; <span class="bnum" id="bs-ok"  style="color:var(--gn)">0</span>
+        &#x2717; <span class="bnum" id="bs-er"  style="color:var(--red)">0</span>
+        avg <span class="bnum" id="bs-avg">&#8212;</span>
+        <div class="sp"></div>
+        <button class="btn sm"       onclick="exportBatch()">&#x2B07;</button>
+        <button class="btn sm ghost" onclick="clearBatch()">clear</button>
+      </div>
+      <div style="padding:9px 12px;border-bottom:1px solid var(--border);
+                  display:flex;gap:8px;align-items:flex-end;flex-shrink:0">
+        <div style="flex:1">
+          <label>Active Template</label>
+          <div id="bat-ap"
+            style="font-size:11px;color:var(--text3);padding:6px 8px;background:var(--bg3);
+                   border:1px solid var(--border);border-radius:var(--r);
+                   min-height:32px;max-height:48px;overflow:hidden">
+            Select a template &#8594;
+          </div>
+        </div>
+        <button class="btn ac" id="brun-btn"  onclick="runBatch()">&#x25B6; Run</button>
+        <button class="btn dn" id="bstop-btn" style="display:none"
+          onclick="stopBatch()">&#x25A0; Stop</button>
+      </div>
+      <div class="scr" style="padding:10px" id="bresults">
+        <div class="empty">
+          <div class="empty-i">&#x2B21;</div>
+          <p>Select a template, check models, then run.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="bpan r">
+      <div class="tabs"><div class="tab on">Models</div></div>
+      <div style="padding:5px 8px;border-bottom:1px solid var(--border);
+                  display:flex;gap:5px;flex-shrink:0">
+        <button class="btn sm"       onclick="chkAll(true)">all</button>
+        <button class="btn sm ghost" onclick="chkAll(false)">none</button>
+        <span id="bmc"
+          style="font-size:10px;color:var(--text3);margin-left:auto;align-self:center"></span>
+      </div>
+      <div class="scr" style="padding:7px" id="bmdl-list"></div>
+      <div class="sec" style="flex-shrink:0">
+        <div class="slbl">Batch Params</div>
+        <div class="irow" style="margin-bottom:5px">
+          <label style="width:86px;margin:0">Max Tokens</label>
+          <input type="number" id="bt-maxtok" value="512" min="1" max="4096" style="width:70px">
+        </div>
+        <div class="irow" style="margin-bottom:5px">
+          <label style="width:86px;margin:0">Temperature</label>
+          <input type="number" id="bt-temp" value="0.7" min="0" max="2" step="0.1" style="width:70px">
+        </div>
+        <div class="irow">
+          <label style="width:86px;margin:0">Timeout (s)</label>
+          <input type="number" id="bt-timeout" value="30" min="5" max="120" style="width:70px">
+        </div>
+      </div>
+    </div>
+  </div><!-- /v-batch -->
+
+  <!-- FREE PROVIDERS VIEW -->
+  <div id="v-free" class="view v-free hidden">
+  </div><!-- /v-free -->
+
+</div><!-- /app -->
+
+<div id="toasts"></div>
+<script type="module" src="assets/js/main.js"></script>
+</body>
+</html>

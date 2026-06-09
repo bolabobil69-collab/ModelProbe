@@ -1,0 +1,6 @@
+{
+  "general":    { "name": "General",    "color": "#3b82f6" },
+  "testing":    { "name": "Testing",    "color": "#f59e0b" },
+  "custom":     { "name": "Custom",     "color": "#10b981" },
+  "production": { "name": "Production", "color": "#ef4444" }
+}

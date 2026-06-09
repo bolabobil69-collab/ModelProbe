@@ -1,0 +1,42 @@
+{
+  "openrouter": {
+    "api_key": "sk-or-YOUR_KEY_HERE",
+    "base_url": "https://openrouter.ai/api/v1"
+  },
+  "openai": {
+    "api_key": "sk-YOUR_KEY_HERE",
+    "base_url": "https://api.openai.com/v1"
+  },
+  "anthropic": {
+    "api_key": "sk-ant-YOUR_KEY_HERE",
+    "base_url": "https://api.anthropic.com/v1"
+  },
+  "groq": {
+    "api_key": "gsk_YOUR_KEY_HERE",
+    "base_url": "https://api.groq.com/openai/v1"
+  },
+  "together": {
+    "api_key": "YOUR_KEY_HERE",
+    "base_url": "https://api.together.xyz/v1"
+  },
+  "ollama": {
+    "api_key": "ollama",
+    "base_url": "http://localhost:11434/v1"
+  },
+  "lmstudio": {
+    "api_key": "lm-studio",
+    "base_url": "http://localhost:1234/v1"
+  },
+  "mistral": {
+    "api_key": "YOUR_MISTRAL_KEY",
+    "base_url": "https://api.mistral.ai/v1"
+  },
+  "huggingface": {
+    "api_key": "hf_YOUR_TOKEN_HERE",
+    "base_url": "https://router.huggingface.co/v1"
+  },
+  "google": {
+    "api_key": "YOUR_AISTUDIO_KEY_HERE",
+    "base_url": "https://generativelanguage.googleapis.com/v1beta/openai"
+  }
+}

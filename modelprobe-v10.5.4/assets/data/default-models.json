@@ -1,0 +1,62 @@
+{
+  "gpt-4o-mini": {
+    "provider": "openai",
+    "model": "gpt-4o-mini"
+  },
+  "gpt-4o": {
+    "provider": "openai",
+    "model": "gpt-4o"
+  },
+  "claude-3-5-haiku": {
+    "provider": "anthropic",
+    "model": "claude-3-5-haiku-20241022"
+  },
+  "claude-3-5-sonnet": {
+    "provider": "anthropic",
+    "model": "claude-3-5-sonnet-20241022"
+  },
+  "llama-3.3-70b": {
+    "provider": "openrouter",
+    "model": "meta-llama/llama-3.3-70b-instruct"
+  },
+  "gemini-2.5-flash": {
+    "provider": "openrouter",
+    "model": "google/gemini-2.5-flash"
+  },
+  "deepseek-v3": {
+    "provider": "openrouter",
+    "model": "deepseek/deepseek-chat-v3-5"
+  },
+  "grok-4-fast": {
+    "provider": "openrouter",
+    "model": "x-ai/grok-4-fast"
+  },
+  "llama-3.3-groq": {
+    "provider": "groq",
+    "model": "llama-3.3-70b-versatile"
+  },
+  "mixtral-groq": {
+    "provider": "groq",
+    "model": "mixtral-8x7b-32768"
+  },
+  "mistral-small": {
+    "provider": "mistral",
+    "model": "mistral-small-latest"
+  },
+  "llama3:8b": {
+    "provider": "ollama",
+    "model": "llama3:8b"
+  },
+  "phi4-mini": {
+    "provider": "ollama",
+    "model": "phi4-mini"
+  },
+  "gemma2:9b": {
+    "provider": "ollama",
+    "model": "gemma2:9b"
+  },
+  "llama-3.1-8b-lm": {
+    "provider": "lmstudio",
+    "model": "meta-llama-3.1-8b-instruct"
+  }
+}

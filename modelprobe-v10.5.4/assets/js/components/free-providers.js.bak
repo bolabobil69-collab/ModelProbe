@@ -1,0 +1,566 @@
+// free-providers.js — Free Providers view  v10.5.0
+import { S } from '../state.js';
+import { markDirty } from '../storage.js';
+import { toast } from '../utils.js';
+import { testFreeModel } from '../api.js';
+
+// ── Constants ──────────────────────────────────────────────────────────────
+
+const SOURCES = [
+  { id: 'openrouter',   label: 'OpenRouter',   needsKey: false, canDiscover: true,  baseUrl: 'https://openrouter.ai/api/v1' },
+  { id: 'groq',         label: 'Groq',         needsKey: true,  canDiscover: false, baseUrl: 'https://api.groq.com/openai/v1' },
+  { id: 'cerebras',     label: 'Cerebras',     needsKey: false, canDiscover: true,  baseUrl: 'https://api.cerebras.ai/v1' },
+  { id: 'mistral',      label: 'Mistral',      needsKey: true,  canDiscover: false, baseUrl: 'https://api.mistral.ai/v1' },
+  { id: 'together',     label: 'Together',     needsKey: true,  canDiscover: false, baseUrl: 'https://api.together.xyz/v1' },
+  { id: 'huggingface',  label: 'HuggingFace',  needsKey: true,  canDiscover: false, baseUrl: 'https://router.huggingface.co/v1' },
+  { id: 'google',       label: 'Google',       needsKey: true,  canDiscover: false, baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai' },
+];
+
+// ── Module state (in-memory only, never persisted) ─────────────────────────
+
+let fpState = {
+  results:        [],
+  loading:        false,
+  errors:         {},
+  filter:         { source: 'all', search: '' },
+  checkedSources: new Set(['openrouter', 'groq', 'cerebras', 'mistral', 'together', 'huggingface', 'google']),
+  expandedCard:   null,
+  addingCard:     null,
+  addAlias:       '',
+  testResults:    {},   // modelId → { status: 'running'|'ok'|'err', ms, msg }
+  testingAll:     false,
+};
+
+// ── Key detection heuristic ────────────────────────────────────────────────
+
+function isValidKey(key) {
+  if (!key || typeof key !== 'string') return false;
+  const k = key.trim();
+  if (k.length < 10) return false;
+  if (/^(sk-YOUR|YOUR_|PASTE_|INSERT_|<|TODO|hf_YOUR|AIza)/i.test(k)) return false;
+  return true;
+}
+
+function sourceHasKey(src) {
+  if (!src.needsKey) return true;
+  const prov = S.providers[src.id];
+  return isValidKey(prov?.api_key);
+}
+
+// canDiscover: true means the /models endpoint is public (no key needed to browse)
+function canDiscover(src) {
+  return src.canDiscover || sourceHasKey(src);
+}
+
+// ── Fetch helpers ──────────────────────────────────────────────────────────
+
+function normalize(source, id, name, contextLength, description, baseUrl) {
+  const ctxK = contextLength ? Math.round(contextLength / 1024) : null;
+  return { source: source.id, sourceLabel: source.label, id, name, contextK: ctxK, description: description || '', baseUrl };
+}
+
+async function fetchOpenRouter() {
+  const res = await fetch('https://openrouter.ai/api/v1/models');
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const json = await res.json();
+  return (json.data || [])
+    .filter(m =>
+      m.pricing?.prompt === '0' &&
+      m.pricing?.completion === '0' &&
+      m.context_length > 0
+    )
+    .map(m => normalize(SOURCES[0], m.id, m.name || m.id, m.context_length, m.description, SOURCES[0].baseUrl));
+}
+
+async function fetchOpenAIShape(source) {
+  const prov = S.providers[source.id];
+  if (!isValidKey(prov?.api_key)) throw new Error(`No valid key — add '${source.id}' provider in Config first`);
+  const res = await fetch(`${source.baseUrl}/models`, {
+    headers: { 'Authorization': `Bearer ${prov.api_key}` }
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status} — check your API key`);
+  const json = await res.json();
+  return (json.data || []).map(m => normalize(source, m.id, m.name || m.id, m.context_length || null, m.description || '', source.baseUrl));
+}
+
+// Groq: all returned models are free-tier (key needed only for inference)
+async function fetchGroq() { return fetchOpenAIShape(SOURCES[1]); }
+
+// Cerebras: public endpoint — no key needed for discovery, pricing field present
+async function fetchCerebras() {
+  const res = await fetch('https://api.cerebras.ai/public/v1/models?format=openrouter');
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const json = await res.json();
+  const src = SOURCES[2];
+  return (json.data || [])
+    .filter(m =>
+      m.pricing?.prompt === '0' &&
+      m.pricing?.completion === '0' &&
+      !m.deprecated
+    )
+    .map(m => normalize(src, m.id, m.name || m.id, m.context_length || null, m.description || '', src.baseUrl));
+}
+
+// Mistral: name-pattern heuristic (no pricing in /models response)
+async function fetchMistral() {
+  const src = SOURCES[3];
+  const prov = S.providers[src.id];
+  if (!isValidKey(prov?.api_key)) throw new Error(`No valid key — add 'mistral' provider in Config first`);
+  const res = await fetch(`${src.baseUrl}/models`, {
+    headers: { 'Authorization': `Bearer ${prov.api_key}` }
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status} — check your API key`);
+  const json = await res.json();
+  return (json.data || [])
+    .filter(m =>
+      m.id.startsWith('open-') ||
+      /mistral-small|devstral|codestral-mamba/.test(m.id)
+    )
+    .map(m => normalize(src, m.id, m.name || m.id, m.max_context_length || null, m.description || '', src.baseUrl));
+}
+
+async function fetchTogether() {
+  const src = SOURCES[4];
+  const prov = S.providers[src.id];
+  if (!isValidKey(prov?.api_key)) throw new Error(`No valid key — add 'together' provider in Config first`);
+  const res = await fetch(`${src.baseUrl}/models`, {
+    headers: { 'Authorization': `Bearer ${prov.api_key}` }
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status} — check your API key`);
+  const json = await res.json();
+  const arr = Array.isArray(json) ? json : (json.data || []);
+  return arr
+    .filter(m => {
+      const inp = m.pricing?.input;
+      return inp === 0 || inp === '0' || m.display_type === 'Free';
+    })
+    .map(m => normalize(src, m.id, m.display_name || m.name || m.id, m.context_length || null, m.description || '', src.baseUrl));
+}
+
+// HuggingFace: inference=warm means model is loaded on serverless free tier
+async function fetchHuggingFace() {
+  const src = SOURCES[5];
+  const prov = S.providers[src.id];
+  if (!isValidKey(prov?.api_key)) throw new Error(`No valid key — add 'huggingface' provider in Config first`);
+  const res = await fetch(
+    'https://huggingface.co/api/models?inference=warm&pipeline_tag=text-generation&sort=likes&limit=40',
+    { headers: { 'Authorization': `Bearer ${prov.api_key}` } }
+  );
+  if (!res.ok) throw new Error(`HTTP ${res.status} — check your HF token`);
+  const json = await res.json();
+  const arr = Array.isArray(json) ? json : (json.models || []);
+  return arr
+    .filter(m => m.inference === 'warm' && m.id)
+    .map(m => {
+      const ctxLen = m.config?.max_position_embeddings || m.safetensors?.total || null;
+      return normalize(src, m.id, m.id, ctxLen, m.description || '', src.baseUrl);
+    });
+}
+
+// Google AI Studio: OpenAI-compat layer, free-tier flash models
+async function fetchGoogle() {
+  const src = SOURCES[6];
+  const prov = S.providers[src.id];
+  if (!isValidKey(prov?.api_key)) throw new Error(`No valid key — add 'google' provider in Config first`);
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models?key=${prov.api_key}`
+  );
+  if (!res.ok) throw new Error(`HTTP ${res.status} — check your AI Studio key`);
+  const json = await res.json();
+  return (json.models || [])
+    .filter(m => {
+      const name = m.name || '';
+      return (
+        /gemini.*flash/i.test(name) &&
+        !/flash-thinking/i.test(name) &&
+        (m.supportedGenerationMethods || []).includes('generateContent')
+      );
+    })
+    .map(m => {
+      const id = m.name.replace('models/', '');
+      const ctxLen = m.inputTokenLimit || null;
+      return normalize(src, id, m.displayName || id, ctxLen, m.description || '', src.baseUrl);
+    });
+}
+
+const FETCHERS = {
+  openrouter:  fetchOpenRouter,
+  groq:        fetchGroq,
+  cerebras:    fetchCerebras,
+  mistral:     fetchMistral,
+  together:    fetchTogether,
+  huggingface: fetchHuggingFace,
+  google:      fetchGoogle,
+};
+
+// ── Public fetch entry point ───────────────────────────────────────────────
+
+export async function fetchFreeProviders() {
+  const sources = [...fpState.checkedSources];
+  if (!sources.length) { toast('Select at least one source', 'warn'); return; }
+
+  fpState.loading     = true;
+  fpState.results     = [];
+  fpState.errors      = {};
+  fpState.testResults = {};   // clear persisted test results on every new fetch
+  fpState.filter.source = 'all';
+  fpState.expandedCard  = null;
+  fpState.addingCard    = null;
+  renderFP();
+
+  await Promise.allSettled(
+    sources.map(async srcId => {
+      try {
+        const models = await FETCHERS[srcId]();
+        fpState.results.push(...models);
+      } catch (err) {
+        fpState.errors[srcId] = err.message;
+      }
+    })
+  );
+
+  fpState.loading = false;
+  renderFP();
+}
+
+// ── Quick test — per card ──────────────────────────────────────────────────
+
+export async function fpTestCard(modelId) {
+  const m = fpState.results.find(r => r.id === modelId);
+  if (!m) return;
+
+  const prov = S.providers[m.source];
+  const apiKey = prov?.api_key || '';
+
+  fpState.testResults[modelId] = { status: 'running' };
+  renderFP();
+
+  const result = await testFreeModel(m.baseUrl, apiKey, m.id);
+
+  fpState.testResults[modelId] = result.ok
+    ? { status: 'ok',  ms: result.ms,  msg: `OK · ${result.ms}ms` }
+    : { status: 'err', ms: result.ms,  msg: result.msg };
+  renderFP();
+}
+
+// ── Global test all visible models ─────────────────────────────────────────
+
+export async function fpTestAll() {
+  const visible = getFiltered();
+  if (!visible.length) { toast('No models to test', 'warn'); return; }
+
+  fpState.testingAll = true;
+  // Mark all as running
+  visible.forEach(m => { fpState.testResults[m.id] = { status: 'running' }; });
+  renderFP();
+
+  await Promise.allSettled(
+    visible.map(async m => {
+      const prov = S.providers[m.source];
+      const apiKey = prov?.api_key || '';
+      const result = await testFreeModel(m.baseUrl, apiKey, m.id);
+      fpState.testResults[m.id] = result.ok
+        ? { status: 'ok',  ms: result.ms, msg: `OK · ${result.ms}ms` }
+        : { status: 'err', ms: result.ms, msg: result.msg };
+    })
+  );
+
+  fpState.testingAll = false;
+  renderFP();
+
+  const ok  = visible.filter(m => fpState.testResults[m.id]?.status === 'ok').length;
+  const err = visible.filter(m => fpState.testResults[m.id]?.status === 'err').length;
+  toast(`Test complete — ${ok} OK · ${err} failed`, err > 0 ? 'warn' : 'ok');
+}
+
+// ── "Already added" check ──────────────────────────────────────────────────
+
+function isAdded(modelId) {
+  return Object.values(S.models).some(m => m.model === modelId);
+}
+
+// ── Filtered results ───────────────────────────────────────────────────────
+
+function getFiltered() {
+  let r = fpState.results;
+  if (fpState.filter.source !== 'all') r = r.filter(m => m.source === fpState.filter.source);
+  const q = fpState.filter.search.trim().toLowerCase();
+  if (q) r = r.filter(m => m.id.toLowerCase().includes(q) || m.name.toLowerCase().includes(q));
+  return r;
+}
+
+// ── Add to config ──────────────────────────────────────────────────────────
+
+export function fpStartAdd(modelId) {
+  const result = fpState.results.find(m => m.id === modelId);
+  if (!result) return;
+  const defaultAlias = result.id.split('/').pop().replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase();
+  fpState.addingCard = modelId;
+  fpState.addAlias   = defaultAlias;
+  renderFP();
+  setTimeout(() => {
+    const inp = document.getElementById('fp-alias-input');
+    if (inp) { inp.focus(); inp.select(); }
+  }, 50);
+}
+
+export function fpCancelAdd() {
+  fpState.addingCard = null;
+  fpState.addAlias   = '';
+  renderFP();
+}
+
+export function fpAliasInput(val) {
+  fpState.addAlias = val;
+}
+
+export function fpConfirmAdd(modelId) {
+  const result = fpState.results.find(m => m.id === modelId);
+  if (!result) return;
+
+  const alias = fpState.addAlias.trim();
+  if (!alias) { toast('Alias cannot be empty', 'warn'); return; }
+
+  if (!S.providers[result.source]) {
+    toast(`No '${result.source}' provider found — add it in Config first`, 'warn');
+    return;
+  }
+
+  if (S.models[alias]) {
+    toast(`Alias '${alias}' already exists — rename it`, 'warn');
+    return;
+  }
+
+  S.models[alias] = { provider: result.source, model: result.id };
+  markDirty('models');
+
+  window.updateModelSel?.();
+  window.renderProvList?.();
+
+  fpState.addingCard = null;
+  fpState.addAlias   = '';
+  toast(`Added: ${alias}`, 'ok');
+  renderFP();
+}
+
+export function fpToggleExpand(modelId) {
+  fpState.expandedCard = fpState.expandedCard === modelId ? null : modelId;
+  renderFP();
+}
+
+export function fpSetSourceFilter(src) {
+  fpState.filter.source = src;
+  renderFP();
+}
+
+export function fpSetSearch(val) {
+  fpState.filter.search = val;
+  renderFP();
+}
+
+export function fpToggleSource(srcId) {
+  if (fpState.checkedSources.has(srcId)) {
+    fpState.checkedSources.delete(srcId);
+  } else {
+    fpState.checkedSources.add(srcId);
+  }
+  renderFP();
+}
+
+// ── Render ─────────────────────────────────────────────────────────────────
+
+export function renderFP() {
+  const el = document.getElementById('v-free');
+  if (!el) return;
+
+  // Preserve scroll position of the cards list across full innerHTML re-renders.
+  // Every state-mutating action (expand, add, test, filter) calls renderFP(),
+  // which replaces el.innerHTML entirely. The browser resets scrollTop to 0 on
+  // each replacement, jumping the list back to the top. We snapshot the current
+  // scrollTop before the replacement and restore it synchronously after so the
+  // user's viewport position is maintained.
+  const prevScroll = el.querySelector('.fp-cards')?.scrollTop ?? 0;
+
+  const filtered     = getFiltered();
+  const hasResults   = fpState.results.length > 0;
+  const activeSources = [...new Set(fpState.results.map(m => m.source))];
+
+  el.innerHTML = `
+    <div class="fp-layout">
+      <!-- LEFT: controls -->
+      <div class="fp-left">
+        <div class="fp-section-hd">Sources</div>
+        <div class="fp-sources">
+          ${SOURCES.map(src => {
+            const hasKey   = sourceHasKey(src);
+            const canBrowse = canDiscover(src);
+            const checked  = fpState.checkedSources.has(src.id);
+            const err      = fpState.errors[src.id];
+            const showKeyWarn = !canBrowse && !hasKey;
+            return `
+              <label class="fp-src-row${showKeyWarn ? ' fp-src-nokey' : ''}">
+                <input type="checkbox" ${checked ? 'checked' : ''}
+                  onchange="fpToggleSource('${src.id}')">
+                <span class="fp-src-label">${src.label}</span>
+                ${src.canDiscover && !hasKey ? `<span class="fp-key-disco" title="No key — can browse but not chat">👁</span>` : ''}
+                ${showKeyWarn ? `<span class="fp-key-warn" title="No API key configured in Config">🔑</span>` : ''}
+              </label>
+              ${err ? `<div class="fp-src-err">↳ ${err}</div>` : ''}
+            `;
+          }).join('')}
+        </div>
+
+        <button class="btn ac fp-fetch-btn" onclick="fetchFreeProviders()"
+          ${fpState.loading ? 'disabled' : ''}>
+          ${fpState.loading ? '⏳ Fetching…' : '▶ Fetch'}
+        </button>
+
+        ${hasResults ? `
+          <div class="fp-section-hd" style="margin-top:18px">Filter Source</div>
+          <div class="fp-src-tabs">
+            <div class="fp-stab${fpState.filter.source === 'all' ? ' on' : ''}"
+              onclick="fpSetSourceFilter('all')">All
+              <span class="fp-stab-ct">${fpState.results.length}</span>
+            </div>
+            ${activeSources.map(srcId => {
+              const src   = SOURCES.find(s => s.id === srcId);
+              const count = fpState.results.filter(m => m.source === srcId).length;
+              return `<div class="fp-stab${fpState.filter.source === srcId ? ' on' : ''}"
+                onclick="fpSetSourceFilter('${srcId}')">${src?.label || srcId}
+                <span class="fp-stab-ct">${count}</span>
+              </div>`;
+            }).join('')}
+          </div>
+        ` : ''}
+      </div>
+
+      <!-- RIGHT: results -->
+      <div class="fp-right">
+        ${hasResults ? `
+          <div class="fp-results-hd">
+            <span class="fp-results-ct">${filtered.length} model${filtered.length !== 1 ? 's' : ''}</span>
+            <input type="text" class="fp-search" placeholder="Search models…"
+              value="${fpState.filter.search}"
+              oninput="fpSetSearch(this.value)">
+            <button class="btn sm fp-test-all-btn"
+              onclick="fpTestAll()"
+              ${fpState.loading || fpState.testingAll ? 'disabled' : ''}
+              title="Test all visible models">
+              ${fpState.testingAll ? '⏳' : '⚡'} Test All
+            </button>
+          </div>
+        ` : ''}
+
+        <div class="fp-cards scr">
+          ${fpState.loading ? `
+            <div class="empty"><div class="empty-i">⏳</div><p>Fetching models…</p></div>
+          ` : !hasResults ? `
+            <div class="empty">
+              <div class="empty-i">✦</div>
+              <p>Select sources and click <strong>Fetch</strong> to load free models.<br>
+              Sources marked 🔑 need an API key in the Config tab.<br>
+              Sources marked 👁 can be browsed without a key.</p>
+            </div>
+          ` : filtered.length === 0 ? `
+            <div class="empty"><div class="empty-i">∅</div><p>No models match your filter.</p></div>
+          ` : filtered.map(m => renderCard(m)).join('')}
+        </div>
+      </div>
+    </div>
+  `;
+
+  // Restore scroll position after innerHTML replacement.
+  const cardsEl = el.querySelector('.fp-cards');
+  if (cardsEl && prevScroll) cardsEl.scrollTop = prevScroll;
+}
+
+function renderCard(m) {
+  const added    = isAdded(m.id);
+  const expanded = fpState.expandedCard === m.id;
+  const adding   = fpState.addingCard   === m.id;
+  const noProv   = !S.providers[m.source];
+  const tr       = fpState.testResults[m.id];
+
+  const ctxStr = m.contextK ? `${m.contextK}K ctx` : '';
+  const isFast = m.source === 'groq' || m.source === 'cerebras';
+
+  // Button modifier class — persists until next fetch (Q1-A)
+  const testBtnMod = tr
+    ? tr.status === 'running' ? ' fp-test-btn-running'
+    : tr.status === 'ok'     ? ' fp-test-btn-ok'
+    :                          ' fp-test-btn-err'
+    : '';
+
+  // Expanded detail — test result + description shown together (Q2-C, Q3-B)
+  const hasTestDetail = tr && tr.status !== 'running';
+  const showDesc      = expanded && (m.description || hasTestDetail);
+  const testDetailHtml = hasTestDetail
+    ? tr.status === 'ok'
+      ? `<div class="fp-test-detail fp-test-detail-ok">✓ ${tr.msg}</div>`
+      : `<div class="fp-test-detail fp-test-detail-err">✗ ${tr.msg}</div>`
+    : '';
+
+  return `
+    <div class="fp-card${expanded ? ' fp-card-exp' : ''}${added ? ' fp-card-added' : ''}">
+      <div class="fp-card-main" onclick="fpToggleExpand('${m.id}')">
+        <div class="fp-card-info">
+          <span class="fp-model-name">${m.name || m.id}</span>
+          <span class="fp-model-id">${m.id}</span>
+        </div>
+        <div class="fp-card-meta">
+          <span class="fp-src-badge fp-src-${m.source}">${m.sourceLabel}</span>
+          ${ctxStr ? `<span class="fp-ctx">${ctxStr}</span>` : ''}
+          ${isFast ? `<span class="fp-fast" title="High-speed inference">⚡</span>` : ''}
+        </div>
+        <div class="fp-card-actions" onclick="event.stopPropagation()">
+          <button class="btn sm fp-test-btn${testBtnMod}"
+            onclick="fpTestCard('${m.id}')"
+            ${tr?.status === 'running' ? 'disabled' : ''}
+            title="${hasTestDetail ? tr.msg : 'Test this model — expand card to see result'}">
+            ${tr?.status === 'running' ? '⏳' : '⚡'}
+          </button>
+          ${added
+            ? `<span class="fp-added-badge">✓ Added</span>`
+            : `<button class="btn sm fp-add-btn" onclick="fpStartAdd('${m.id}')"
+                ${noProv ? `title="Add '${m.source}' provider in Config first"` : ''}>
+                + Add
+              </button>`
+          }
+        </div>
+      </div>
+
+      ${showDesc ? `
+        <div class="fp-card-desc">
+          ${testDetailHtml}
+          ${m.description ? `<span class="fp-card-desc-text">${m.description}</span>` : ''}
+        </div>
+      ` : ''}
+
+      ${adding ? `
+        <div class="fp-add-form" onclick="event.stopPropagation()">
+          ${noProv ? `<div class="fp-warn-banner">⚠ No '${m.source}' provider in Config. Add it first, then return here.</div>` : ''}
+          <div class="fp-add-row">
+            <label class="fp-add-lbl">Alias</label>
+            <input id="fp-alias-input" type="text" class="fp-add-inp"
+              value="${fpState.addAlias}"
+              oninput="fpAliasInput(this.value)"
+              onkeydown="if(event.key==='Enter') fpConfirmAdd('${m.id}'); if(event.key==='Escape') fpCancelAdd()">
+          </div>
+          <div class="fp-add-row">
+            <label class="fp-add-lbl">Provider</label>
+            <span class="fp-add-val">${m.source}</span>
+          </div>
+          <div class="fp-add-row">
+            <label class="fp-add-lbl">Model ID</label>
+            <span class="fp-add-val fp-add-mid">${m.id}</span>
+          </div>
+          <div class="fp-add-btns">
+            <button class="btn sm ghost" onclick="fpCancelAdd()">Cancel</button>
+            <button class="btn sm ac" onclick="fpConfirmAdd('${m.id}')"
+              ${noProv ? 'disabled' : ''}>Add Model →</button>
+          </div>
+        </div>
+      ` : ''}
+    </div>
+  `;
+}

@@ -1,0 +1,39 @@
+{
+  "prompts": [
+    {
+      "id": "hello",
+      "name": "Basic Hello",
+      "cat": "general",
+      "sys": "",
+      "prompt": "Say hello and introduce yourself in 2-3 sentences."
+    },
+    {
+      "id": "json",
+      "name": "JSON Test",
+      "cat": "structured",
+      "sys": "Respond with JSON only.",
+      "prompt": "Return a JSON object with fields: name, version, status."
+    },
+    {
+      "id": "math",
+      "name": "Interesting Math",
+      "cat": "reasoning",
+      "sys": "",
+      "prompt": "What is 1729 and why is it mathematically interesting?"
+    },
+    {
+      "id": "code",
+      "name": "Code Snippet",
+      "cat": "code",
+      "sys": "",
+      "prompt": "Write a Python function to check if a number is prime. Include a docstring."
+    },
+    {
+      "id": "creative",
+      "name": "Creative Write",
+      "cat": "creative",
+      "sys": "",
+      "prompt": "Write a two-sentence story about a robot discovering music for the first time."
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "name": "modelprobe-v1040",
+  "version": "10.5.5",
+  "scripts": {
+    "start": "python3 build.py && python3 serve.py",
+    "build": "python3 build.py",
+    "build:watch": "python3 build.py --watch"
+  }
+}
